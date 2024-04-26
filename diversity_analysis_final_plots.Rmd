@@ -1,0 +1,158 @@
+---
+title: "Diversity Analysis Plots"
+author: "Samuel Ozminkowski"
+date: "2024-04-26"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, message=F)
+what <- "OTU"
+setwd("~/Documents/phd/research/ANTHRO_CHIMPS")
+```
+
+New data in summer 2023
+2023 data: 166 samples, 12230 OTUs
+Please note that the sampleid has been sorted for the original data set 
+
+```{r}
+OldData <- read.csv("data/feature_table_for_hongmei_sorted.csv", row.names = 1,
+                    check.names=FALSE)
+Feature_SampleID <- row.names(OldData)
+
+MyMapping <- read.csv("data/CH_metadata_for_hongmei_sorted2.csv", row.names = 1)
+Mappling_SampleID <- row.names(MyMapping)
+
+if(sum(Feature_SampleID == Mappling_SampleID) < length(Feature_SampleID))
+{
+  print("not all feature sample IDs match mapping sample IDs")
+  print(Feature_SampleID == Mappling_SampleID)
+}
+
+NumSamples <- nrow(MyMapping)
+```
+
+#### one chimp does not have data in OTU table
+
+### (5) compute proportion
+
+```{r results='hide'}
+Data  <- apply(OldData, 1, function(x) x/sum(x))
+```
+
+Note: after the above command, the data is transposed, now the row is OTU, column is Sample
+
+```{r}
+indiv_to_code <- function(individual)
+{
+  nms = read.csv("dummy_code_key.csv",header=T)
+  rownames(nms) <- nms$Subject.Name
+  nms$Subject.Name <- NULL
+  return(nms[individual,"Full_dummy_code"])
+}
+```
+
+
+```{r}
+# Use anonymized codes for names
+MyMapping$Individual <- indiv_to_code(MyMapping$Individual)
+
+MyMapping$Time <- MyMapping$Time_to_collection
+
+MyMapping$Group <- as.factor(MyMapping$Group)
+MyMapping$Sex <- as.factor(MyMapping$Sex)
+MyMapping$Location <- as.factor(MyMapping$Location)
+MyMapping$Substrate2 <- as.factor(MyMapping$Substrate2)
+MyMapping$Weather <- as.factor(MyMapping$Weather)  
+MyMapping$Health <- as.factor(MyMapping$Health) 
+MyMapping$Individual <- as.factor(MyMapping$Individual) 
+
+MyMapping$Bristol2 <- MyMapping$Bristol
+MyMapping$Bristol2[MyMapping$Bristol < 4] <- 3
+
+MyMapping$Bristol <- as.factor(MyMapping$Bristol)
+MyMapping$Bristol2 <- as.factor(MyMapping$Bristol2)
+
+MyMapping <- cbind(SampleID = rownames(MyMapping), MyMapping)
+
+table(MyMapping$Bristol)
+```
+
+### Calculate diversity metrics
+
+```{r}
+library(vegan) # gets us simpson, shannon, and inv. simpson diversities
+
+MyMapping$Shannon <- diversity(Data[,MyMapping$SampleID],
+                               MARGIN = 2,
+                               index = "shannon")
+
+```
+
+## Plots
+
+
+```{r}
+library(ggplot2)
+
+
+ggplot(data=MyMapping) + 
+  geom_line(aes(y=Shannon,x=Days,color=Individual)) + 
+  labs(x="Days from Baseline", y="Shannon Index") +
+  theme_bw() + facet_wrap(.~Individual) + theme(legend.position = "none")
+ggsave("figures/Shannon.png")
+
+# send above
+```
+
+
+# Uni-Frac Distances
+
+```{r}
+uw_unifrac <- read.delim("data/uw-distance-matrix-tech-time.txt", row.names = 1,
+                    check.names=FALSE)
+```
+
+
+### unweighted
+
+```{r}
+uw_unifrac_mat <- as.matrix(uw_unifrac)
+
+n <- length(MyMapping$SampleID)
+
+MyMapping <- MyMapping[order(MyMapping$Individual,MyMapping$SampleNumber),]
+
+MyMapping$UW1 <- rep(0,n)
+MyMapping$UWPrev <- rep(0,n)
+
+SID1  <- ""
+prevSID <- ""
+current_num <- 0
+
+for(SID in MyMapping$SampleID)
+{
+  prev_num = current_num
+  current_num = MyMapping[SID,"SampleNumber"]
+  if(current_num <= prev_num || current_num == 1)
+  {
+    SID1 <- SID
+    prevSID <- SID
+    next
+  }
+
+  MyMapping[SID,"UWPrev"] <- uw_unifrac_mat[prevSID,SID]
+  MyMapping[SID,"UW1"] <- uw_unifrac_mat[SID1,SID]
+  prevSID <- SID
+}
+
+
+
+ggplot(data=subset(MyMapping,!is.na(BrayPrevTP))) + 
+  geom_line(aes(x=Days,
+                y=UW1,
+                color=Individual,group=Individual)) + theme_bw() + facet_wrap(.~ Individual) +
+  xlab("Days from baseline") + ylab("Unweighted Uni-Frac Distance from Baseline") + theme(legend.position = "none")
+ggsave("figures/unweighted_unifrac_from_baseline.png")
+
+```
